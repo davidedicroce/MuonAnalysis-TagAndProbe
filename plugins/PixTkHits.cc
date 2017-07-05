@@ -178,9 +178,10 @@ PixTkHits::analyze(const edm::Event& iEvent, const edm::EventSetup& iSetup)
   edm::Handle<edm::DetSetVector<SiStripRawDigi> > stripCM; 
   iEvent.getByToken(stripCommonModeLabel_, stripCM); 
 
-  Handle<TrackerGeometry> trackergeo;
-  iEvent.getByToken(trackergeo_, trackergeo);
-  auto trackergeounit = trackergeo.product();
+  edm::ESHandle<TrackerGeometry> trackergeo;
+  iSetup.get<TrackerDigiGeometryRecord>().get(trackergeo);
+  const TrackerGeometry &trackergeom = *trackergeo;
+
   Handle<MeasurementTrackerEvent> tracker;
   iEvent.getByToken(tracker_, tracker);
   const PxMeasurementConditionSet & pixelConds = tracker->measurementTracker().pixelDetConditions();
@@ -401,7 +402,7 @@ PixTkHits::analyze(const edm::Event& iEvent, const edm::EventSetup& iSetup)
             if (whichpair == 1) validhits_pair1_++;
             if (whichpair == 2) validhits_pair2_++;
             ///////////////////////////////////////////////
-            auto temp = trackergeounit->idToDet(wherevalid);
+            auto temp = trackergeom.idToDet(wherevalid);
 	    const PixelGeomDetUnit* pixelDet = dynamic_cast<const PixelGeomDetUnit*> (temp);
             const PixelTopology& topol = pixelDet->specificTopology();
             int nRowSiPixel = topol.nrows();
