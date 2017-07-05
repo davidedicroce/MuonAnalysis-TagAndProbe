@@ -20,6 +20,7 @@
   <use   name="MuonAnalysis/TagAndProbe"/>
   <use   name="TrackingTools/IPTools"/>
   <use   name="TrackingTools/GeomPropagators"/>
+  <use   name="TrackingTools/TrackRefitter"/>
   <use   name="RecoTracker/Record"/>
   <use   name="TrackingTools/KalmanUpdators"/>
   <use   name="RecoTracker/MeasurementDet"/>
@@ -27,6 +28,8 @@
   <use   name="MagneticField/Records"/>
   <use   name="RecoTracker/TkDetLayers"/>
   <use   name="HLTrigger/HLTcore"/>
+  <use   name="Geometry/Records"/>
+  <use   name="Geometry/TrackerGeometryBuilder"/>
 </library>
 
 
