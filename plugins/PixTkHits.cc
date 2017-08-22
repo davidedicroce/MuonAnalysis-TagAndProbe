@@ -24,6 +24,8 @@
 #include "FWCore/ServiceRegistry/interface/Service.h"
 #include "CommonTools/UtilAlgos/interface/TFileService.h"
 
+#include "DataFormats/TrackReco/interface/Track.h"
+#include "DataFormats/TrackReco/interface/TrackFwd.h"
 #include "DataFormats/Scalers/interface/LumiScalers.h"
 #include "DataFormats/Luminosity/interface/LumiDetails.h"
 
@@ -110,6 +112,7 @@ class PixTkHits : public edm::EDAnalyzer {
     }
     edm::EDGetTokenT<LumiScalersCollection> m_lumiScalerTag_;
     edm::EDGetTokenT<std::vector<PileupSummaryInfo>> puSummaryInfoToken_;
+    const edm::EDGetTokenT<reco::VertexCollection> pvToken_;
     
     TTree *tree_;
     
@@ -119,15 +122,15 @@ class PixTkHits : public edm::EDAnalyzer {
     //double TagMu_px_, TagMu_py_, TagMu_pz_, TagMu_pt_, TagMu_e_, TagMu_eta_, TagMu_phi_;
     //double Mu_px_, Mu_py_, Mu_pz_, Mu_pt_, Mu_e_, Mu_eta_, Mu_phi_;
     //int TagMu_charge_, Mu_charge_;
-    double medch1_, bestch1_, medch2_, bestch2_, cmode1_, cmode2_;
+    double bestch1_, bestch2_, cmode1_, cmode2_;
 
     int missedhit_cent_1_, missedhit_cent_2_, missedhit_edg_1_, missedhit_edg_2_, validhits_pair1_, validhits_pair2_;
     int cluster0modules_pair1_, cluster0modules_pair2_, cluster1modules_pair1_, cluster1modules_pair2_, cluster2modules_pair1_, cluster2modules_pair2_;
     int validhit_edg_1_, validhit_edg_2_, validhit_cent_1_, validhit_cent_2_, ngoodvalid1_, ngoodvalid2_, nbadvalid1_, nbadvalid2_, diffpixel1x_,diffpixel2x_, diffpixel1y_,diffpixel2y_;
     double nextvhcharge1_, nextvhcharge2_, chargevalid_1_, chargevalid_2_;
 
-    int diffmisstrip1x_, diffmisstrip2x_;
-    int diffmisstrip1y_, diffmisstrip2y_;
+    int diffmisspixel1x_, diffmisspixel2x_;
+    int diffmisspixel1y_, diffmisspixel2y_;
     double nextmischarge1_, nextmischarge2_;
 };
 
@@ -139,12 +142,12 @@ PixTkHits::PixTkHits(const edm::ParameterSet& iConfig):
   stripDigiLabel_(consumes<edm::DetSetVector<SiStripDigi>>(iConfig.getParameter<edm::InputTag>("stripDigis"))),
   stripCommonModeLabel_(consumes<edm::DetSetVector<SiStripRawDigi>>(iConfig.getParameter<edm::InputTag>("stripCommonMode"))),
   tracker_(consumes<MeasurementTrackerEvent>(iConfig.getParameter<edm::InputTag>("tracker"))),
-  trackergeo_(consumes<TrackerGeometry>(iConfig.getParameter<edm::InputTag>("trackergeo"))),
   layersToDebug_(iConfig.getUntrackedParameter<std::vector<std::string>>("layersToDebug", std::vector<std::string>())),
   refitter_(iConfig),
   propagator_(iConfig.getParameter<std::string>("PropagatorAlong")),
   propagatorOpposite_(iConfig.getParameter<std::string>("PropagatorOpposite")),
   m_lumiScalerTag_(consumes<LumiScalersCollection>(iConfig.getParameter<edm::InputTag>("lumiScalerTag"))),
+  pvToken_(consumes<reco::VertexCollection>(iConfig.getParameter<edm::InputTag>("primaryVertex")));
   puSummaryInfoToken_ ( consumes<std::vector<PileupSummaryInfo>>( iConfig.getParameter<edm::InputTag>("pileupInfoSummaryInputTag") ) )
 { 
   //usesResource("TFileService");
@@ -200,10 +203,10 @@ PixTkHits::analyze(const edm::Event& iEvent, const edm::EventSetup& iSetup)
   nbadvalid2_ = 0;
   nextvhcharge1_ = -999.;
   nextvhcharge2_ = -999.;
-  diffpixel1x_ = 0;
-  diffpixel1y_ = 0;
-  diffpixel2x_ = 0;
-  diffpixel2y_ = 0;
+  diffpixel1x_ = -1;
+  diffpixel1y_ = -1;
+  diffpixel2x_ = -1;
+  diffpixel2y_ = -1;
   chargevalid_1_ = -999.;
   chargevalid_2_ = -999.;
   
@@ -218,17 +221,15 @@ PixTkHits::analyze(const edm::Event& iEvent, const edm::EventSetup& iSetup)
   cluster2modules_pair1_ = 0;
   cluster2modules_pair2_ = 0;
   
-  medch1_ = -999.;
-  medch2_ = -999.;
   bestch1_ = -999.;
   bestch2_ = -999.;
   cmode1_ = -999.;
   cmode2_ = -999.;
 
-  diffmisstrip1x_ = 0;
-  diffmisstrip1y_ = 0;
-  diffmisstrip2x_ = 0;
-  diffmisstrip2y_ = 0;
+  diffmisspixel1x_ = -1;
+  diffmisspixel1y_ = -1;
+  diffmisspixel2x_ = -1;
+  diffmisspixel2y_ = -1;
   nextmischarge1_ = -999.;
   nextmischarge2_ = -999.;
 
@@ -237,14 +238,22 @@ PixTkHits::analyze(const edm::Event& iEvent, const edm::EventSetup& iSetup)
   //Mu_px_ = Mu_py_ = Mu_pz_ = Mu_pt_ = Mu_e_ = Mu_eta_ = Mu_phi_ = -999.;
   //TagMu_charge_ = Mu_charge_ = -999;
   
-  std::cout << std::endl;
+  //std::cout << std::endl;
   
   run_  = iEvent.id().run();
   lumi_ = iEvent.id().luminosityBlock();
   event_ = iEvent.id().event();
   bx_ = iEvent.bunchCrossing();
+  good_vertices_ = 0;
+  edm::Handle<reco::VertexCollection> recoPrimaryVerticesHandle;
+  iEvent.getByToken(pvToken_, recoPrimaryVerticesHandle);
+  if (recoPrimaryVerticesHandle.isValid())
+    if (recoPrimaryVerticesHandle->size() > 0)
+      for (auto v : *recoPrimaryVerticesHandle)
+        if (v.ndof() >= 4 && !v.isFake())
+          ++good_vertices_;
   if (iEvent.isRealData()){
-    std::cout << "Is Real Data" << std::endl;
+    //std::cout << "Is Real Data" << std::endl;
     if (!m_lumiScalerTag_.isUninitialized()){
       edm::Handle<LumiScalersCollection> lumiScaler;
       iEvent.getByToken(m_lumiScalerTag_, lumiScaler);
@@ -254,7 +263,7 @@ PixTkHits::analyze(const edm::Event& iEvent, const edm::EventSetup& iSetup)
       throw cms::Exception("CorruptData") << "[AdditionalEventInfo::produce] AdditionalEventInfo requires a valid LumiScalerCollecion InpuTag" << std::endl;
     }
   } else {
-    std::cout << "Is not Real Data" << std::endl; 
+    //std::cout << "Is not Real Data" << std::endl; 
     edm::Handle<std::vector<PileupSummaryInfo>> puSummaryInfoHandle;
     if (iEvent.getByToken(puSummaryInfoToken_, puSummaryInfoHandle)) {
       for (PileupSummaryInfo const & pileup: *puSummaryInfoHandle) {
@@ -267,8 +276,8 @@ PixTkHits::analyze(const edm::Event& iEvent, const edm::EventSetup& iSetup)
     }
   }
 
-  std::cout << "instLumi = " << instLumi_ << std::endl;
-  std::cout << "PU = " << PU_ << std::endl;
+  //std::cout << "instLumi = " << instLumi_ << std::endl;
+  //std::cout << "PU = " << PU_ << std::endl;
 
   unsigned int npairs = 0;
   const reco::Candidate *bestpair1 = nullptr, *bestpair2 = nullptr;
@@ -396,19 +405,16 @@ PixTkHits::analyze(const edm::Event& iEvent, const edm::EventSetup& iSetup)
               if (std::find(layersToDebug_.begin(), layersToDebug_.end(), sDETS[subdetvalid]+sLAYS[layervalid]) == layersToDebug_.end()) {
                 continue;
               }
-              //std::cout << "Hit on correct LAYER" << std::endl;
             }
             std::cout << "Found hit on" << sDETS[subdetvalid] << layervalid << ", detid " << wherevalid() <<  ", position " << valid->localPosition() << std::endl;
             if (whichpair == 1) validhits_pair1_++;
             if (whichpair == 2) validhits_pair2_++;
-            ///////////////////////////////////////////////
             auto temp = trackergeom.idToDet(wherevalid);
 	    const PixelGeomDetUnit* pixelDet = dynamic_cast<const PixelGeomDetUnit*> (temp);
             const PixelTopology& topol = pixelDet->specificTopology();
             int nRowSiPixel = topol.nrows();
             int nColSiPixel = topol.ncolumns();
             std::cout << " NRows (x) = " << nRowSiPixel << " | NCols (y) = " << nColSiPixel << std::endl;
-            //////////////////////////////////////////////
             MeasurementDetWithData mdetvalid = tracker->idToDet(wherevalid);
             herevalid = hitvalid->geographicalId();
             TrajectoryStateOnSurface tsosvalid;
@@ -453,59 +459,57 @@ PixTkHits::analyze(const edm::Event& iEvent, const edm::EventSetup& iSetup)
                 utrajfirstvalidY = clusterhit.minPixelRow();
                 utrajlastvalidX = clusterhit.maxPixelCol();
                 utrajlastvalidY = clusterhit.maxPixelRow();
-                std::cout << " X: Valid Pixel: first at " << utrajfirstvalidX << " , last at " << utrajlastvalidX << std::endl;
-                std::cout << " Y: Valid Pixel: first at " << utrajfirstvalidY << " , last at " << utrajlastvalidY << std::endl;
+                //std::cout << " X: Valid Pixel: first at " << utrajfirstvalidX << " , last at " << utrajlastvalidX << std::endl;
+                //std::cout << " Y: Valid Pixel: first at " << utrajfirstvalidY << " , last at " << utrajlastvalidY << std::endl;
                 int ValidPixels = clusterhit.size();
-                std::cout << "  Number of Valid Pixels : " << ValidPixels << std::endl; 
-                std::cout << "  x = " << clusterhit.x() << " y = " << clusterhit.y() << std::endl;
-                std::cout << "  size x = " << clusterhit.sizeX() << " size y = " << clusterhit.sizeY() << std::endl;
-                std::cout << "  min x = " << clusterhit.minPixelRow() << " min y = " << clusterhit.minPixelCol() << std::endl;
-                std::cout << "  max x = " << clusterhit.maxPixelRow() << " max y = " << clusterhit.maxPixelCol() << std::endl;
+                //std::cout << "  Number of Valid Pixels : " << ValidPixels << std::endl; 
+                //std::cout << "  x = " << clusterhit.x() << " y = " << clusterhit.y() << std::endl;
+                //std::cout << "  size x = " << clusterhit.sizeX() << " size y = " << clusterhit.sizeY() << std::endl;
+                std::cout << "  min x = " << clusterhit.minPixelCol() << " max x = " << clusterhit.maxPixelCol() << std::endl;
+                std::cout << "  min y = " << clusterhit.minPixelRow() << " max y = " << clusterhit.maxPixelRow() << std::endl;
                 if (whichpair == 1){
                   int diffpixelx = 6;
                   int diffpixely = 6;
                   double nextvhcharge1 = -999.;
-                  float chargevalid_1_ = clusterhit.charge();                   
-                  /*if ( utrajfirstvalidX < 64 || utrajlastvalidX > (nPixels-64) ){
+                  chargevalid_1_ = clusterhit.charge();                   
+                  if ( ( utrajfirstvalidX < 20 || utrajlastvalidX > (nRowSiPixel - 20) ) || (utrajfirstvalidY < 52 || utrajlastvalidY > (nColSiPixel - 52) ) ){
                     validhit_edg_1_++;
-                     std::cout << "valid hit in lateral pixel, first muon" << std::endl;
+                    std::cout << "valid hit in lateral pixel, first muon" << std::endl;
                   }
-                  if ( utrajfirstvalidX >= 64 && utrajlastvalidX <= (nPixels-64) ){
+                  if ( ( utrajfirstvalidX >= 20 && utrajlastvalidX <= (nRowSiPixel - 20) ) && (utrajfirstvalidY >= 52 && utrajlastvalidY <= (nColSiPixel - 52) ) ){
                     validhit_cent_1_++;
                     std::cout << "valid hit in central pixel, first muon" << std::endl;
-                  }*/
+                  }
                   for (const SiPixelCluster &clustervalid : clustersvalid) {
                     std::cout << "  Cluster of " << clustervalid.size() << " pixel: " << std::endl;
                     float charge = clustervalid.charge();                   
-                    for (unsigned int sx = clustervalid.minPixelRow(), ix = 0, ex = clustervalid.sizeX(); ix < ex; ++sx, ++ix) {
-                    for (unsigned int sy = clustervalid.minPixelCol(), iy = 0, ey = clustervalid.sizeY(); iy < ey; ++sy, ++iy) {
+                    for (unsigned int sx = clustervalid.minPixelCol(), mx = clustervalid.maxPixelCol()+1; sx < mx; ++sx) {
+                    for (unsigned int sy = clustervalid.minPixelRow(), my = clustervalid.maxPixelRow()+1; sy < my; ++sy) {
                       if ( charge == chargevalid_1_ ) {
-                        std::cout << " Hit geography analysis 1 " << std::endl;
-                        if ( charge < 2000) ++nbadvalid1_;
-                        else if ( charge >= 2000) ++ngoodvalid1_;
+                        if ( charge < 20000) ++nbadvalid1_;
+                        else if ( charge >= 20000) ++ngoodvalid1_;
                       }
-                      std::cout << "   " << std::setw(4) << sx << " , " << sy << " |  "<<charge;
-                      if ( (sx < utrajfirstvalidX) && (std::abs(sx-utrajfirstvalidX) == diffpixelx) && (charge > nextvhcharge1) && (sy < utrajfirstvalidY) && (std::abs(sy-utrajfirstvalidY) == diffpixely) ){
-                        nextvhcharge1 = charge;
-                      } else if ( (sx < utrajfirstvalidX) && (std::abs(sx-utrajfirstvalidX) < diffpixelx) && (sy < utrajfirstvalidY) && (std::abs(sy-utrajfirstvalidY) < diffpixely) ){
+                      if ( ( charge != chargevalid_1_ ) && (sx < utrajfirstvalidX) && (std::abs(sx-utrajfirstvalidX) <= diffpixelx) && ( ( (sy < utrajfirstvalidY) && (std::abs(sy-utrajfirstvalidY) <= diffpixely) ) || ( (sy > utrajlastvalidY) && (std::abs(sy-utrajlastvalidY) <= diffpixely) ) ) ){
                         diffpixelx = std::abs(sx-utrajfirstvalidX);
-                        diffpixely = std::abs(sy-utrajfirstvalidY);
+                        if (sy < utrajfirstvalidY) diffpixely = std::abs(sy-utrajfirstvalidY);
+                        else diffpixely = std::abs(sy-utrajlastvalidY);
                         nextvhcharge1 = charge;
-                      } else if ( (sx > utrajlastvalidX) && (std::abs(sx-utrajlastvalidX) == diffpixelx) && (sy > utrajlastvalidY) && (std::abs(sy-utrajlastvalidY) == diffpixely) && (charge > nextvhcharge1) ){
-                        nextvhcharge1 = charge;
-                      } else if ( (sx > utrajlastvalidX) && (std::abs(sx-utrajlastvalidX) < diffpixelx) && (sy > utrajlastvalidY) && (std::abs(sy-utrajlastvalidY) < diffpixely) ){
+                      } else if ( ( charge != chargevalid_1_ ) && (sx > utrajlastvalidX) && (std::abs(sx-utrajlastvalidX) <= diffpixelx) && ( ( (sy < utrajfirstvalidY) && (std::abs(sy-utrajfirstvalidY) <= diffpixely) ) || ( (sy > utrajlastvalidY) && (std::abs(sy-utrajlastvalidY) <= diffpixely) ) ) ){
                         diffpixelx = std::abs(sx-utrajlastvalidX);
-                        diffpixely = std::abs(sy-utrajlastvalidY);
+                        if (sy < utrajfirstvalidY) diffpixely = std::abs(sy-utrajfirstvalidY);
+                        else diffpixely = std::abs(sy-utrajlastvalidY);
                         nextvhcharge1 = charge;
                       }
+                      std::cout << "1st muon extra valid hit, min x = " << utrajfirstvalidX-sx << " | max x = " << sx-utrajlastvalidX << " | min y = " << utrajfirstvalidY-sy <<  " | max y = " << sy-utrajlastvalidY << " | charge = "<< charge << std::endl;
                     }
                     }
                     std::cout << std::endl;
                   }
-                  if ( diffpixelx < 6 && diffpixely < 6) {
+                  if ( diffpixelx < 6 && diffpixely < 6 && nextvhcharge1 != chargevalid_1_ ) {
                     diffpixel1x_ = diffpixelx;
                     diffpixel1y_ = diffpixely;
                     nextvhcharge1_ = nextvhcharge1;
+                    std::cout << " !!!!!!  EXTRA HIT !!!!!!! "<< std::endl;
                   }
                   std::cout << " Pixel Cluster 1: found hit charge = " << chargevalid_1_ << " | diff. num. pixels EXTRA X = " << diffpixel1x_ << " | diff. num. pixels EXTRA Y = " << diffpixel1y_ << " | EXTRA charge = " << nextvhcharge1_ << std::endl;
                 }
@@ -513,47 +517,45 @@ PixTkHits::analyze(const edm::Event& iEvent, const edm::EventSetup& iSetup)
                   int diffpixelx = 6;
                   int diffpixely = 6;
                   double nextvhcharge2 = -999.;
-                  float chargevalid_2_ = clusterhit.charge();                   
-                  /*if ( utrajfirstvalidX < 64 || utrajlastvalidX > (nPixels-64) ){
+                  chargevalid_2_ = clusterhit.charge();
+                  if ( ( utrajfirstvalidX < 20 || utrajlastvalidX > (nRowSiPixel - 20) ) || (utrajfirstvalidY < 52 || utrajlastvalidY > (nColSiPixel - 52) ) ){
                     validhit_edg_2_++;
-                    std::cout << "valid hit in lateral strip, second muon" << std::endl;
+                    std::cout << "valid hit in lateral pixel, second muon" << std::endl;
                   }
-                  if ( utrajfirstvalidX >= 64 && utrajlastvalidX <= (nPixels-64) ){
+                  if ( ( utrajfirstvalidX >= 20 && utrajlastvalidX <= (nRowSiPixel - 20) ) && (utrajfirstvalidY >= 52 && utrajlastvalidY <= (nColSiPixel - 52) ) ){
                     validhit_cent_2_++;
-                    std::cout << "valid hit in central strip, second muon" << std::endl;
-                  }*/
-                  for (const SiPixelCluster &clustervalid : clustersvalid) {
-                    std::cout << "  Cluster of " << clustervalid.size() << " pixel: " << std::endl;
-                    float charge = clustervalid.charge();                   
-                    for (unsigned int sx = clustervalid.minPixelRow(), ix = 0, ex = clustervalid.sizeX(); ix < ex; ++sx, ++ix) {
-                    for (unsigned int sy = clustervalid.minPixelCol(), iy = 0, ey = clustervalid.sizeY(); iy < ey; ++sy, ++iy) {
-                      if ( charge == chargevalid_2_ ) {
-                        std::cout << " Hit geography analysis 2 " << std::endl;
-                        if ( charge < 2000) ++nbadvalid2_;
-                        else if ( charge >= 2000) ++ngoodvalid2_;
-                      }
-                      std::cout << "   " << std::setw(4) << sx << " , " << sy << " |  "<<charge;
-                      if ( (sx < utrajfirstvalidX) && (std::abs(sx-utrajfirstvalidX) == diffpixelx) && (sy < utrajfirstvalidY) && (std::abs(sy-utrajfirstvalidY) == diffpixely)&& (charge > nextvhcharge2) ){
-                        nextvhcharge2 = charge;
-                      } else if ( (sx < utrajfirstvalidX) && (std::abs(sx-utrajfirstvalidX) < diffpixelx) && (sy < utrajfirstvalidY) && (std::abs(sy-utrajfirstvalidY) < diffpixely) ){
-                        diffpixelx = std::abs(sx-utrajfirstvalidX);
-                        diffpixely = std::abs(sy-utrajfirstvalidY);
-                        nextvhcharge2 = charge;
-                      } else if ( (sx > utrajlastvalidX) && (std::abs(sx-utrajlastvalidX) == diffpixelx) && (sy > utrajlastvalidY) && (std::abs(sy-utrajlastvalidY) == diffpixely) && (charge > nextvhcharge2) ){
-                        nextvhcharge2 = charge;
-                      } else if ( (sx > utrajlastvalidX) && (std::abs(sx-utrajlastvalidX) < diffpixelx) && (sy > utrajlastvalidY) && (std::abs(sy-utrajlastvalidY) < diffpixely) ){
-                        diffpixelx = std::abs(sx-utrajlastvalidX);
-                        diffpixely = std::abs(sy-utrajlastvalidY);
-                        nextvhcharge2 = charge;
-                      }
-                    }
-                    }
-                    std::cout << std::endl;
+                    std::cout << "valid hit in central pixel, second muon" << std::endl;
                   }
-                  if ( diffpixelx < 6) {
+                  for (const SiPixelCluster &clustervalid : clustersvalid) {
+                    //std::cout << "  Cluster of " << clustervalid.size() << " pixel: " << std::endl;
+                    float charge = clustervalid.charge();                   
+                    for (unsigned int sx = clustervalid.minPixelCol(), mx = clustervalid.maxPixelCol()+1; sx < mx; ++sx) {
+                    for (unsigned int sy = clustervalid.minPixelRow(), my = clustervalid.maxPixelRow()+1; sy < my; ++sy) {
+                      if ( charge == chargevalid_2_ ) {
+                        if ( charge < 20000) ++nbadvalid2_;
+                        else if ( charge >= 20000) ++ngoodvalid2_;
+                      }
+                      if ( ( charge != chargevalid_2_ ) && (sx < utrajfirstvalidX) && (std::abs(sx-utrajfirstvalidX) <= diffpixelx) && ( ( (sy < utrajfirstvalidY) && (std::abs(sy-utrajfirstvalidY) <= diffpixely) ) || ( (sy > utrajlastvalidY) && (std::abs(sy-utrajlastvalidY) <= diffpixely) ) ) ){
+                        nextvhcharge2 = charge;
+                        diffpixelx = std::abs(sx-utrajfirstvalidX);
+                        if (sy < utrajfirstvalidY) diffpixely = std::abs(sy-utrajfirstvalidY);
+                        else diffpixely = std::abs(sy-utrajlastvalidY);
+                      } else if ( ( charge != chargevalid_2_ ) && (sx > utrajlastvalidX) && (std::abs(sx-utrajlastvalidX) <= diffpixelx) && ( ( (sy < utrajfirstvalidY) && (std::abs(sy-utrajfirstvalidY) <= diffpixely) ) || ( (sy > utrajlastvalidY) && (std::abs(sy-utrajlastvalidY) <= diffpixely) ) ) ){
+                        nextvhcharge2 = charge;
+                        diffpixelx = std::abs(sx-utrajlastvalidX);
+                        if (sy < utrajfirstvalidY) diffpixely = std::abs(sy-utrajfirstvalidY);
+                        else diffpixely = std::abs(sy-utrajlastvalidY);
+                      }
+                      std::cout << "2st muon extra valid hit, min x = " << utrajfirstvalidX-sx << " | max x = " << sx-utrajlastvalidX << " | min y = " << utrajfirstvalidY-sy <<  " | max y = " << sy-utrajlastvalidY << " | charge = "<< nextvhcharge2 << std::endl;
+                    }
+                    }
+                    //std::cout << std::endl;
+                  }
+                  if ( diffpixelx < 6 && diffpixely < 6 && nextvhcharge2 != chargevalid_2_ ) {
                     diffpixel2x_ = diffpixelx; 
                     diffpixel2y_ = diffpixely; 
                     nextvhcharge2_ = nextvhcharge2;
+                    std::cout << " !!!!!!  EXTRA HIT !!!!!!! "<< std::endl;
                   }
                   std::cout << " Strip Cluster 2: found hit charge = " << chargevalid_2_ << " | diff. num. pixels EXTRA = " << diffpixel2x_ << " | diff. num. pixels EXTRA Y = " << diffpixel2y_ << " | EXTRA charge = " << nextvhcharge2_ << std::endl;
                 }
@@ -642,173 +644,171 @@ PixTkHits::analyze(const edm::Event& iEvent, const edm::EventSetup& iSetup)
             std::cout << "  Detector is inactive" << std::endl;
             continue;
           }
-          
-          //std::cout << "  DetSet_size " << det->topology().size() << " pixels: " << std::endl;
- 
-          /*if (whichpair == 1) {
-            double bestpixel1 = utrajx;
-            if ( bestpixel1 < 64 || bestpixel1 > (nStrips-64) ){
-              std::cout << "STRIP 1: " << bestpixel1 << std::endl;
+
+          ///////////////////////////////////////////////
+          auto temp = trackergeom.idToDet(where);
+          const PixelGeomDetUnit* pixelDet = dynamic_cast<const PixelGeomDetUnit*> (temp);
+          const PixelTopology& topol = pixelDet->specificTopology();
+          int nRowSiPixel = topol.nrows();
+          int nColSiPixel = topol.ncolumns();
+          std::cout << " NRows (x) = " << nRowSiPixel << " | NCols (y) = " << nColSiPixel << std::endl;
+          //////////////////////////////////////////////
+          if (whichpair == 1) {
+            double bestpixel1x = utrajx;
+            double bestpixel1y = utrajy;
+            if ( ( bestpixel1x < 20 || bestpixel1x > (nRowSiPixel-20) ) || (bestpixel1y < 52 || bestpixel1y > (nColSiPixel-52) ) ){
+              std::cout << "STRIP 1: x = " << bestpixel1x << " , y = " << bestpixel1y << std::endl;
               missedhit_edg_1_++;
               std::cout << "missed hit in lateral strip, first muon" << std::endl;
             }
-            if ( (bestpixel1 >= 64 && bestpixel1 <= (nStrips-64)) ){
-              std::cout << "STRIP 1: " << bestpixel1 << std::endl;
+            if ( ( bestpixel1x >= 20 && bestpixel1x <= (nRowSiPixel-20) ) && (bestpixel1y >= 52 && bestpixel1y <= (nColSiPixel-52) ) ){
+              std::cout << "STRIP 1: x = " << bestpixel1x << " , y = " << bestpixel1y << std::endl;
               missedhit_cent_1_++;
               std::cout << "missed hit in central strip, first muon" << std::endl;
             }
           }
           if (whichpair == 2) {
-            double bestpixel2 = utraj;
-            if ( bestpixel2 < 64 || bestpixel2 > (nStrips-64) ){
-              std::cout << "STRIP 2: " << bestpixel2 << std::endl;
+            double bestpixel2x = utrajx;
+            double bestpixel2y = utrajy;
+            if ( ( bestpixel2x < 20 || bestpixel2x > (nRowSiPixel-20) ) || (bestpixel2y < 52 || bestpixel2y > (nColSiPixel-52) ) ){
+              std::cout << "STRIP 2: x = " << bestpixel2x << " , y = " << bestpixel2y << std::endl;
               missedhit_edg_2_++;
               std::cout << "missed hit in lateral strip, second muon" << std::endl;
             }
-            if ( bestpixel2 >= 64 && bestpixel2 <= (nStrips-64) ){
-              std::cout << "STRIP 2: " << bestpixel2 << std::endl;
+            if ( ( bestpixel2x >= 20 && bestpixel2x <= (nRowSiPixel-20) ) && (bestpixel2y >= 52 && bestpixel2y <= (nColSiPixel-52) ) ){
+              std::cout << "STRIP 2: x = " << bestpixel2x << " , y = " << bestpixel2y << std::endl;
               missedhit_cent_2_++;
               std::cout << "missed hit in central strip, second muon" << std::endl;
             }
-          }*/
+          }
           auto cl_iter = pixelC->find(where);
           if (cl_iter == pixelC->end()) {
             std::cout << "  ... no pixels clusters on this detid" << std::endl;
           } else {
             edmNew::DetSet<SiPixelCluster> clusters = *cl_iter;
             if (whichpair == 1){
-              int i1 = 0;
               int diffpixelx = 5;
               int diffpixely = 5;
-              int diffmisstripx = 6;
-              int diffmisstripy = 6;
-              int firstmisstripx = -999;
-              int firstmisstripy = -999;
-              int lastmisstripx = -999;
-              int lastmisstripy = -999;
+              int diffmisspixelx = 6;
+              int diffmisspixely = 6;
+              int firstmisspixelx = -999;
+              int firstmisspixely = -999;
+              int lastmisspixelx = -999;
+              int lastmisspixely = -999;
               double nextmischarge1 = -999.;
-              double sumch = 0;
               for (const SiPixelCluster &cluster : clusters) {
-                std::cout << std::endl;
-                std::cout << "  Cluster of " << cluster.size() << " pixels: " << std::endl;
-                std::cout << "  x = " << cluster.x() << " y = " << cluster.x() << std::endl;
-                std::cout << "  size x = " << cluster.sizeX() << " size y = " << cluster.sizeY() << std::endl;
-                std::cout << "  min x = " << cluster.minPixelRow() << " min y = " << cluster.minPixelCol() << std::endl;
-                std::cout << "  max x = " << cluster.maxPixelRow() << " max y = " << cluster.maxPixelCol() << std::endl;
-                for (int sx = cluster.minPixelRow(), ix = 0, ex = cluster.sizeX(); ix < ex; ++sx, ++ix) {
-                for (int sy = cluster.minPixelCol(), iy = 0, ey = cluster.sizeY(); iy < ey; ++sy, ++iy) {
+                //std::cout << "  Cluster of " << cluster.size() << " pixels: " << std::endl;
+                //std::cout << "  x = " << cluster.x() << " y = " << cluster.x() << std::endl;
+                //std::cout << "  size x = " << cluster.sizeX() << " size y = " << cluster.sizeY() << std::endl;
+                std::cout << "  min x = " << cluster.minPixelCol() << " max x = " << cluster.maxPixelCol() << std::endl;
+                std::cout << "  min y = " << cluster.minPixelRow() << " max y = " << cluster.maxPixelRow() << std::endl;
+                for (int sx = cluster.minPixelCol(), mx = cluster.maxPixelCol()+1; sx < mx; ++sx) {
+                for (int sy = cluster.minPixelRow(), my = cluster.maxPixelRow()+1; sy < my; ++sy) {
                   float charge = cluster.charge();
-                  if (pred && std::abs(sx-utrajx) < diffpixelx && std::abs(sy-utrajy) < diffpixely) { 
+		  if (pred && std::abs(sx-utrajx) <= diffpixelx && std::abs(sy-utrajy) <= diffpixely) { 
                     hascluster = true;
-                    i1++;
-                    sumch = sumch + charge;
-                    medch1_ = sumch/i1;
-                    if ( (std::abs(sx-utrajx) == diffpixelx) && (std::abs(sy-utrajy) == diffpixely) && (charge > bestch1_) ){
-                      bestch1_ = charge;
-                      firstmisstripx = sx-ix;
-                      firstmisstripy = sy-iy;
-                      lastmisstripx = sx-ix+ex-1;
-                      lastmisstripx = sy-iy+ey-1;
-                    } else if ( std::abs(sx-utrajx) < diffpixelx && std::abs(sy-utrajy) < diffpixely ){
-                      diffpixelx = std::abs(sx-utrajx);
-                      diffpixely = std::abs(sy-utrajy);
-                      firstmisstripx = sx-ix;
-                      firstmisstripx = sy-iy;
-                      lastmisstripx = sx-ix+ex-1;
-                      lastmisstripx = sy-iy+ey-1;
-                      bestch1_ = charge;
+                    std::cout << "  Missed Cluster FOUND: charge = " << charge << " , previous charge = " << bestch1_ << std::endl;
+                    std::cout << "  x distance = " << std::abs(sx-utrajx) << " , previous x dist = " << diffpixelx << std::endl;
+                    std::cout << "  y distance = " << std::abs(sy-utrajy) << " , previous y dist = " << diffpixelx << std::endl;
+                    if (std::abs(sx-utrajx) == diffpixelx && std::abs(sy-utrajy) == diffpixely && charge < bestch1_ ) {
+                      std::cout << "same distance and lower charge" << std::endl;
+                      continue;
                     }
+                    std::cout << "NEW BEST MISSED CHARGE" << std::endl;
+                    diffpixelx = std::abs(sx-utrajx);
+                    diffpixely = std::abs(sy-utrajy);
+                    firstmisspixelx = cluster.minPixelCol();
+                    firstmisspixely = cluster.minPixelRow();
+                    lastmisspixelx = cluster.maxPixelCol();
+                    lastmisspixely = cluster.maxPixelRow();
+                    bestch1_ = charge;
                   }
                 }
                 }
                 if (hascluster) {
-                  for (int sx = cluster.minPixelRow(), ix = 0, ex = cluster.sizeX(); ix < ex; ++sx, ++ix) {
-                  for (int sy = cluster.minPixelCol(), iy = 0, ey = cluster.sizeY(); iy < ey; ++sy, ++iy) {
+                  for (int sx = cluster.minPixelCol(), mx = cluster.maxPixelCol()+1; sx < mx; ++sx) {
+                  for (int sy = cluster.minPixelRow(), my = cluster.maxPixelRow()+1; sy < my; ++sy) {
                     float charge = cluster.charge();
-                    if ( (sx < firstmisstripx) && (std::abs(sx-firstmisstripx) == diffmisstripx) && (sy < firstmisstripy) && (std::abs(sy-firstmisstripy) == diffmisstripy) && (charge > nextmischarge1) ){
+                    if ( (charge != bestch1_) && (sx < firstmisspixelx) && (std::abs(sx-firstmisspixelx) <= diffmisspixelx) && ( ( (sy < firstmisspixely) && (std::abs(sy-firstmisspixely) <= diffmisspixely) ) || ( (sy > lastmisspixely) && (std::abs(sy-lastmisspixely) <= diffmisspixely) ) ) ){
+                      if ( charge < nextmischarge1 && ( (sy < firstmisspixely && std::abs(sy-firstmisspixely) == diffmisspixely) || (sy > lastmisspixely && std::abs(sy-lastmisspixely) == diffmisspixely) ) ) continue;
                       nextmischarge1 = charge;
-                    } else if ( (sx < firstmisstripx) && (std::abs(sx-firstmisstripx) < diffmisstripx) && (sy < firstmisstripy) && (std::abs(sy-firstmisstripy) < diffmisstripy)){
-                      diffmisstripx = std::abs(sx-firstmisstripx);
-                      diffmisstripy = std::abs(sy-firstmisstripy);
+                      diffmisspixelx = std::abs(sx-firstmisspixelx);
+                      if (sy < firstmisspixely) diffmisspixely = std::abs(sy-firstmisspixely);
+                      else diffmisspixely = std::abs(sy-lastmisspixely);
+                    } else if ( (charge != bestch1_) && (sx > lastmisspixelx) && (std::abs(sx-lastmisspixelx) <= diffmisspixelx) && ( ( (sy < firstmisspixely) && (std::abs(sy-firstmisspixely) <= diffmisspixely) ) || ( (sy > lastmisspixely) && (std::abs(sy-lastmisspixely) <= diffmisspixely) ) ) ){
+                      if ( charge < nextmischarge1 && ( (sy < firstmisspixely && std::abs(sy-firstmisspixely) == diffmisspixely) || (sy > lastmisspixely && std::abs(sy-lastmisspixely) == diffmisspixely) ) ) continue;
                       nextmischarge1 = charge;
-                    } else if ( (sx > lastmisstripx) && (std::abs(sx-lastmisstripx) == diffmisstripx) && (sy > lastmisstripy) && (std::abs(sy-lastmisstripy) == diffmisstripy) && (charge > nextmischarge1) ){
-                      nextmischarge1 = charge;
-                    } else if ( (sx > lastmisstripx) && (std::abs(sx-lastmisstripx) < diffmisstripx) && (sy > lastmisstripy) && (std::abs(sy-lastmisstripy) < diffmisstripy) ){
-                      diffmisstripx = std::abs(sx-lastmisstripx);
-                      diffmisstripy = std::abs(sy-lastmisstripy);
-                      nextmischarge1 = charge;
+                      diffmisspixelx = std::abs(sx-lastmisspixelx);
+                      if (sy < firstmisspixely) diffmisspixely = std::abs(sy-firstmisspixely);
+                      else diffmisspixely = std::abs(sy-lastmisspixely);
                     }
                   }
                   }
-                  if ( diffmisstripx < 6 && diffmisstripy < 6 ) {
-                    diffmisstrip1x_ = diffmisstripx;
-                    diffmisstrip1y_ = diffmisstripy;
+                  if ( diffmisspixelx < 6 && diffmisspixely < 6 && nextmischarge1 != bestch1_ ) {
+                    diffmisspixel1x_ = diffmisspixelx;
+                    diffmisspixel1y_ = diffmisspixely;
                     nextmischarge1_ = nextmischarge1;
                   }
                 }
               }
-              //std::cout << " Strip Cluster 1: Med. Charge = " << medch1_ << " | Closer Strip Cluster Charge = " << bestch1_ << std::endl;
+              std::cout << " Missed HIT: Strip Cluster Charge 1 = " << bestch1_ << std::endl;
             } 
             else if (whichpair == 2){
-              int i2 = 0;
               int diffpixelx = 5;
               int diffpixely = 5;
-              int diffmisstripx = 6;
-              int diffmisstripy = 6;
-              int firstmisstripx = -999;
-              int firstmisstripy = -999;
-              int lastmisstripx = -999;
-              int lastmisstripy = -999;
+              int diffmisspixelx = 6;
+              int diffmisspixely = 6;
+              int firstmisspixelx = -999;
+              int firstmisspixely = -999;
+              int lastmisspixelx = -999;
+              int lastmisspixely = -999;
               double nextmischarge2 = -999.;
-              double sumch = 0;
               for (const SiPixelCluster &cluster : clusters) {
-                std::cout << std::endl;
+                //std::cout << std::endl;
                 std::cout << "  Cluster of " << cluster.size() << " pixels: " << std::endl;
-                for (int sx = cluster.minPixelRow(), ix = 0, ex = cluster.sizeX(); ix < ex; ++sx, ++ix) {
-                for (int sy = cluster.minPixelCol(), iy = 0, ey = cluster.sizeY(); iy < ey; ++sy, ++iy) {
+                for (int sx = cluster.minPixelCol(), mx = cluster.maxPixelCol()+1; sx < mx; ++sx) {
+                for (int sy = cluster.minPixelRow(), my = cluster.maxPixelRow()+1; sy < my; ++sy) {
                   float charge = cluster.charge();
-                  if (pred && std::abs(sx-utrajx) < diffpixelx && std::abs(sy-utrajy) < diffpixely) {
+                  if (pred && std::abs(sx-utrajx) <= diffpixelx && std::abs(sy-utrajy) <= diffpixely) {
                     hascluster = true;
-                    i2++;
-                    sumch = sumch + charge;
-                    medch2_ = sumch/i2;
-                    if ( (std::abs(sx-utrajx) == diffpixelx) && (std::abs(sy-utrajy) == diffpixely) && (charge > bestch2_) ){
-                      bestch2_ = charge;
-                    } else if ( std::abs(sx-utrajx) < diffpixelx && std::abs(sy-utrajy) < diffpixely ){
-                      diffpixelx = std::abs(sx-utrajx);
-                      diffpixely = std::abs(sy-utrajy);
-                      bestch2_ = charge;
-                    }
+                    if (std::abs(sx-utrajx) == diffpixelx && std::abs(sy-utrajy) == diffpixely && charge < bestch2_ ) continue;
+                    diffpixelx = std::abs(sx-utrajx);
+                    diffpixely = std::abs(sy-utrajy);
+                    firstmisspixelx = cluster.minPixelCol();
+                    firstmisspixely = cluster.minPixelRow();
+                    lastmisspixelx = cluster.maxPixelCol();
+                    lastmisspixely = cluster.maxPixelRow();
+                    bestch2_ = charge;
                   }
                 }
                 }
                 if (hascluster) {
-                  for (int sx = cluster.minPixelRow(), ix = 0, ex = cluster.sizeX(); ix < ex; ++sx, ++ix) {
-                  for (int sy = cluster.minPixelCol(), iy = 0, ey = cluster.sizeY(); iy < ey; ++sy, ++iy) {
+                  for (int sx = cluster.minPixelCol(), mx = cluster.maxPixelCol()+1; sx < mx; ++sx) {
+                  for (int sy = cluster.minPixelRow(), my = cluster.maxPixelRow()+1; sy < my; ++sy) {
                     float charge = cluster.charge();
-                    if ( (sx < firstmisstripx) && (std::abs(sx-firstmisstripx) == diffmisstripx) && (sy < firstmisstripy) && (std::abs(sy-firstmisstripy) == diffmisstripy) && (charge > nextmischarge2) ){
+                    if ( (charge != bestch2_) && (sx < firstmisspixelx) && (std::abs(sx-firstmisspixelx) <= diffmisspixelx) && ( ( (sy < firstmisspixely) && (std::abs(sy-firstmisspixely) <= diffmisspixely) ) || ( (sy > lastmisspixely) && (std::abs(sy-lastmisspixely) <= diffmisspixely) ) ) ){
+                      if ( charge < nextmischarge2 && ( (sy < firstmisspixely && std::abs(sy-firstmisspixely) == diffmisspixely) || (sy > lastmisspixely && std::abs(sy-lastmisspixely) == diffmisspixely) ) ) continue;
                       nextmischarge2 = charge;
-                    } else if ( (sx < firstmisstripx) && (std::abs(sx-firstmisstripx) < diffmisstripx) && (sy < firstmisstripy) && (std::abs(sy-firstmisstripy) < diffmisstripy) ){
-                      diffmisstripx = std::abs(sx-firstmisstripx);
-                      diffmisstripy = std::abs(sy-firstmisstripy);
+                      diffmisspixelx = std::abs(sx-firstmisspixelx);
+                      if (sy < firstmisspixely) diffmisspixely = std::abs(sy-firstmisspixely);
+                      else diffmisspixely = std::abs(sy-lastmisspixely);
+                    } else if ( (charge != bestch2_) && (sx > lastmisspixelx) && (std::abs(sx-lastmisspixelx) <= diffmisspixelx) && ( ( (sy < firstmisspixely) && (std::abs(sy-firstmisspixely) <= diffmisspixely) ) || ( (sy > lastmisspixely) && (std::abs(sy-lastmisspixely) <= diffmisspixely) ) ) ){
+                      if ( charge < nextmischarge2 && ( (sy < firstmisspixely && std::abs(sy-firstmisspixely) == diffmisspixely) || (sy > lastmisspixely && std::abs(sy-lastmisspixely) == diffmisspixely) ) ) continue;
                       nextmischarge2 = charge;
-                    } else if ( (sx > lastmisstripx) && (std::abs(sx-lastmisstripx) == diffmisstripx) && (sy > lastmisstripy) && (std::abs(sy-lastmisstripy) == diffmisstripy) && (charge > nextmischarge2) ){
-                      nextmischarge2 = charge;
-                    } else if ( (sx > lastmisstripx) && (std::abs(sx-lastmisstripx) < diffmisstripx) && (sy > lastmisstripy) && (std::abs(sy-lastmisstripy) < diffmisstripy) ){
-                      diffmisstripx = std::abs(sx-lastmisstripx);
-                      diffmisstripy = std::abs(sy-lastmisstripy);
-                      nextmischarge2 = charge;
+                      diffmisspixelx = std::abs(sx-lastmisspixelx);
+                      if (sy < firstmisspixely) diffmisspixely = std::abs(sy-firstmisspixely);
+                      else diffmisspixely = std::abs(sy-lastmisspixely);
                     }
                   }
                   }
-                  if ( diffmisstripx < 6 && diffmisstripy < 6) {
-                    diffmisstrip2x_ = diffmisstripx;
-                    diffmisstrip2y_ = diffmisstripy;
+                  if ( diffmisspixelx < 6 && diffmisspixely < 6 && nextmischarge2 != bestch2_ ) {
+                    diffmisspixel2x_ = diffmisspixelx;
+                    diffmisspixel2y_ = diffmisspixely;
                     nextmischarge2_ = nextmischarge2;
                   }
                 }
               }
-              //std::cout << " Strip Cluster 2: Med. Charge = " << medch2_ << " | Closer Strip Cluster Charge = " << bestch2_ << std::endl;
+              std::cout << " Missed HIT: Strip Cluster Charge 2 = " << bestch2_ << std::endl;
             }  
           }
           
@@ -853,11 +853,11 @@ PixTkHits::analyze(const edm::Event& iEvent, const edm::EventSetup& iSetup)
       }
   }
   if (validhits_pair1_ !=0 ||cluster0modules_pair1_ !=0 || cluster1modules_pair1_ != 0 || cluster2modules_pair1_ != 0){
-    std::cout << "LumiBlock: " << iEvent.luminosityBlock() << " | VH: " << validhits_pair1_ << " | 0CMH: " << cluster0modules_pair1_ << " | 1CMH: " << cluster1modules_pair1_ << " | 2CMH: " << cluster2modules_pair1_ << std::endl;
+    std::cout << "1st muon| LumiBlock: " << iEvent.luminosityBlock() << " | VH: " << validhits_pair1_ << " | 0CMH: " << cluster0modules_pair1_ << " | 1CMH: " << cluster1modules_pair1_ << " | 2CMH: " << cluster2modules_pair1_ << std::endl;
   }
 
   if (validhits_pair2_ !=0 ||cluster0modules_pair2_ !=0 || cluster1modules_pair2_ != 0 || cluster2modules_pair2_ != 0){
-    std::cout << "LumiBlock: " << iEvent.luminosityBlock() << " | VH: " << validhits_pair2_ << " | 0CMH: " << cluster0modules_pair2_ << " | 1CMH: " << cluster1modules_pair2_ << " | 2CMH: " << cluster2modules_pair2_ << std::endl;
+    std::cout << "2nd muon | LumiBlock: " << iEvent.luminosityBlock() << " | VH: " << validhits_pair2_ << " | 0CMH: " << cluster0modules_pair2_ << " | 1CMH: " << cluster1modules_pair2_ << " | 2CMH: " << cluster2modules_pair2_ << std::endl;
   }
   std::cout << " Found HITS: VHC1 = " << validhit_cent_1_ << " | VHE1 = " << validhit_edg_1_ << " || VHC2 = " << validhit_cent_2_ << " | VHE2 = " << validhit_edg_2_ << std::endl;
   std::cout << " Missed HITS: MHC1 = " << missedhit_cent_1_ << " | MHE1 = " << missedhit_edg_1_ << " || MHC2 = " << missedhit_cent_2_ << " | MHE2 = " << missedhit_edg_2_ << std::endl;
@@ -932,17 +932,15 @@ PixTkHits::beginJob()
   tree_->Branch("cluster2modules_pair1", &cluster2modules_pair1_, "cluster2modules_pair1/i");
   tree_->Branch("cluster2modules_pair2", &cluster2modules_pair2_, "cluster2modules_pair2/i");
   
-  tree_->Branch("medch1", &medch1_, "medch1/d");
-  tree_->Branch("medch2", &medch2_, "medch2/d");
   tree_->Branch("bestch1", &bestch1_, "bestch1/d");
   tree_->Branch("bestch2", &bestch2_, "bestch2/d");
   tree_->Branch("cmode1", &cmode1_, "cmode1/d");
   tree_->Branch("cmode2", &cmode2_, "cmode2/d");
 
-  tree_->Branch("diffmisstrip1x", &diffmisstrip1x_, "diffmisstrip1x/i");
-  tree_->Branch("diffmisstrip1y", &diffmisstrip1y_, "diffmisstrip1y/i");
-  tree_->Branch("diffmisstrip2x", &diffmisstrip2x_, "diffmisstrip2x/i");
-  tree_->Branch("diffmisstrip2y", &diffmisstrip2y_, "diffmisstrip2y/i");
+  tree_->Branch("diffmisspixel1x", &diffmisspixel1x_, "diffmisspixel1x/i");
+  tree_->Branch("diffmisspixel1y", &diffmisspixel1y_, "diffmisspixel1y/i");
+  tree_->Branch("diffmisspixel2x", &diffmisspixel2x_, "diffmisspixel2x/i");
+  tree_->Branch("diffmisspixel2y", &diffmisspixel2y_, "diffmisspixel2y/i");
   tree_->Branch("nextmischarge1", &nextmischarge1_, "nextmischarge1/d");
   tree_->Branch("nextmischarge2", &nextmischarge2_, "nextmischarge2/d");
 }
