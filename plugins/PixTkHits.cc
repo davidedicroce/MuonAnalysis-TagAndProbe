@@ -28,6 +28,7 @@
 #include "DataFormats/TrackReco/interface/TrackFwd.h"
 #include "DataFormats/Scalers/interface/LumiScalers.h"
 #include "DataFormats/Luminosity/interface/LumiDetails.h"
+#include "DataFormats/VertexReco/interface/VertexFwd.h"
 
 #include "DataFormats/Common/interface/ValueMap.h"
 #include "DataFormats/MuonReco/interface/Muon.h"
@@ -118,7 +119,7 @@ class PixTkHits : public edm::EDAnalyzer {
     
     uint32_t run_, lumi_, bx_;
     uint64_t event_;
-    double PU_, instLumi_;
+    double PU_, instLumi_,good_vertices_;
     //double TagMu_px_, TagMu_py_, TagMu_pz_, TagMu_pt_, TagMu_e_, TagMu_eta_, TagMu_phi_;
     //double Mu_px_, Mu_py_, Mu_pz_, Mu_pt_, Mu_e_, Mu_eta_, Mu_phi_;
     //int TagMu_charge_, Mu_charge_;
@@ -147,8 +148,8 @@ PixTkHits::PixTkHits(const edm::ParameterSet& iConfig):
   propagator_(iConfig.getParameter<std::string>("PropagatorAlong")),
   propagatorOpposite_(iConfig.getParameter<std::string>("PropagatorOpposite")),
   m_lumiScalerTag_(consumes<LumiScalersCollection>(iConfig.getParameter<edm::InputTag>("lumiScalerTag"))),
-  pvToken_(consumes<reco::VertexCollection>(iConfig.getParameter<edm::InputTag>("primaryVertex")));
-  puSummaryInfoToken_ ( consumes<std::vector<PileupSummaryInfo>>( iConfig.getParameter<edm::InputTag>("pileupInfoSummaryInputTag") ) )
+  puSummaryInfoToken_ ( consumes<std::vector<PileupSummaryInfo>>( iConfig.getParameter<edm::InputTag>("pileupInfoSummaryInputTag") ) ),
+  pvToken_(consumes<reco::VertexCollection>(iConfig.getParameter<edm::InputTag>("primaryVertex")))
 { 
   //usesResource("TFileService");
 }
