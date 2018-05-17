@@ -20,6 +20,7 @@
   <use   name="MuonAnalysis/TagAndProbe"/>
   <use   name="TrackingTools/IPTools"/>
   <use   name="TrackingTools/GeomPropagators"/>
+  <use   name="TrackingTools/TrackRefitter"/>
   <use   name="RecoTracker/Record"/>
   <use   name="TrackingTools/KalmanUpdators"/>
   <use   name="RecoTracker/MeasurementDet"/>
