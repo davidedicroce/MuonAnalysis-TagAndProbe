@@ -35,7 +35,7 @@
 #include "TrackingTools/GeomPropagators/interface/Propagator.h"
 #include "TrackingTools/Records/interface/TrackingComponentsRecord.h"
 //#include "CalibFormats/SiPixelObjects/interface/SiPixelQuality.h"
-//#include "CalibTracker/Records/interface/SiPixelQualityRcd.h"
+#include "CalibTracker/Records/interface/SiPixelQualityRcd.h"
 #include "RecoTracker/MeasurementDet/src/TkMeasurementDetSet.h"
 #include "../interface/BadComponents.h"
 
@@ -66,7 +66,7 @@ class PXB1Hits : public edm::one::EDAnalyzer<edm::one::SharedResources> {
         /// Track Transformer
         TrackTransformer refitter_;
         const std::string propagatorOpposite_;
-        //std::string pixelQualityLabel_;
+        std::string pixelQualityLabel_;
         const std::string estimatorName_;
         const double rescaleError_;
 
@@ -74,8 +74,8 @@ class PXB1Hits : public edm::one::EDAnalyzer<edm::one::SharedResources> {
         edm::ESHandle<Propagator> thePropagatorOpposite;
         edm::ESHandle<Chi2MeasurementEstimatorBase> theEstimator;
 
-        //edm::ESHandle<SiPixelQuality> thePixelQuality;
-        BadComponents theBadComponents;
+        edm::ESHandle<SiPixelQuality> thePixelQuality;
+        //BadComponents theBadComponents;
 
         TTree *tree_;
         int run_, lumi_, bx_, instLumi_, npv_, good_vertices_; uint64_t event_; 
@@ -109,11 +109,11 @@ PXB1Hits::PXB1Hits(const edm::ParameterSet& iConfig):
     estimatorName_(iConfig.getParameter<std::string>("Chi2MeasurementEstimator")),
     rescaleError_(iConfig.getParameter<double>("rescaleError")),
     debug_(iConfig.getUntrackedParameter<int>("debug",0))
-    //pixelQualityLabel_(iConfig.getParameter<std::string>("SiPixelQuality"))
-{
+    pixelQualityLabel_(iConfig.getParameter<std::string>("SiPixelQuality"))
+    /*{
     if (iConfig.existsAs<std::string>("badComponentsFile")) {
         theBadComponents.init(iConfig.getParameter<std::string>("badComponentsFile"));
-    }
+    }*/
 
     usesResource("TFileService");
     edm::Service<TFileService> fs;
@@ -227,14 +227,14 @@ PXB1Hits::~PXB1Hits()
 
     iSetup.get<TrackingComponentsRecord>().get(estimatorName_, theEstimator);
     iSetup.get<TrackingComponentsRecord>().get(propagatorOpposite_, thePropagatorOpposite);
-    //iSetup.get<SiPixelQualityRcd>().get(pixelQualityLabel_, thePixelQuality);
+    iSetup.get<SiPixelQualityRcd>().get(pixelQualityLabel_, thePixelQuality);
 
     edm::Handle<edmNew::DetSetVector<SiPixelCluster> > pixelC; 
     iEvent.getByToken(pixelClusterLabel_, pixelC); 
 
     Handle<MeasurementTrackerEvent> tracker;
     iEvent.getByToken(tracker_, tracker);
-    //const PxMeasurementConditionSet & pixelConds = tracker->measurementTracker().pixelDetConditions();
+    const PxMeasurementConditionSet & pixelConds = tracker->measurementTracker().pixelDetConditions();
 
     std::vector<int> badROCs;
     for (const reco::Candidate & pair : *pairs) {
@@ -334,7 +334,7 @@ PXB1Hits::~PXB1Hits()
             track_exp_sizeX_ = 1.5f;
             track_exp_sizeY_ = std::max<float>(1.f, std::hypot(1.3f, 1.9f*mutk.pz()/mutk.pt()));
             track_exp_charge_ = std::sqrt(1.08f + std::pow(mutk.pz()/mutk.pt(),2)) * 26000;
-            theBadComponents.fetch(iEvent.id().run(), iEvent.id().luminosityBlock(),  detAndState.first->geographicalId().rawId(), badROCs);
+            //theBadComponents.fetch(iEvent.id().run(), iEvent.id().luminosityBlock(),  detAndState.first->geographicalId().rawId(), badROCs);
             maybeBadROC_ = false;
             for (int badROC: badROCs) {
                 float rocx = ((badROC/8)-0.5)*82*0.0100; // one ROC is 80 pixels, each 100um wide, but there are big pixels

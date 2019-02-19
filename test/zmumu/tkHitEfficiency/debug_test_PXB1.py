@@ -61,7 +61,7 @@ process.mix.playback = True
 process.mix.digitizers = cms.PSet()
 for a in process.aliases: delattr(process, a)
 from Configuration.AlCa.GlobalTag import GlobalTag
-process.GlobalTag = GlobalTag(process.GlobalTag, '101X_dataRun2_Express_v7', '')
+process.GlobalTag = GlobalTag(process.GlobalTag, '102X_dataRun2_Sep2018Rereco_v1', '')
 
 # Path and EndPath definitions
 process.raw2digi_step = cms.Path(process.RawToDigi)
@@ -162,10 +162,16 @@ process.TFileService = cms.Service("TFileService",
 )
 
 process.source.fileNames = [
-# '/store/data/Run2018C/SingleMuon/RAW/v1/000/319/349/00000/C8D79005-1183-E811-AF6E-FA163E117CB2.root',
- '/store/data/Run2018C/SingleMuon/RAW/v1/000/319/349/00000/1EAF310F-1183-E811-9A6D-FA163EBF4D62.root',
- '/store/data/Run2018C/SingleMuon/RAW/v1/000/319/349/00000/66992110-1183-E811-A7C5-FA163EA57599.root',
- '/store/data/Run2018C/SingleMuon/RAW/v1/000/319/349/00000/34C59082-1283-E811-96B6-02163E017FD0.root',
+#'/store/data/Run2018C/SingleMuon/RAW/v1/000/319/349/00000/C8D79005-1183-E811-AF6E-FA163E117CB2.root',
+ '/store/relval/CMSSW_10_2_2/RelValZMM_13/GEN-SIM-DIGI-RAW/PU25ns_102X_upgrade2018_realistic_v11-v2/10000/CABF4DE7-419C-E811-B5A8-0025905B856E.root',
+# '/store/data/Run2018D/SingleMuon/RAW/v1/000/321/295/00000/1CF5646F-12A0-E811-8B45-02163E01A068.root',
+# '/store/data/Run2018D/SingleMuon/RAW/v1/000/321/295/00000/AC7C8AD2-12A0-E811-B910-02163E01A12B.root',
+# '/store/data/Run2018D/SingleMuon/RAW/v1/000/321/295/00000/74F9FB71-12A0-E811-B79F-FA163ED0CAD6.root',
+# '/store/data/Run2018D/SingleMuon/RAW/v1/000/321/295/00000/7E7144DC-14A0-E811-A953-02163E01A0EA.root',
+# '/store/data/Run2018D/SingleMuon/RAW/v1/000/321/295/00000/36C9AFEF-12A0-E811-9765-FA163E293C8E.root',
+# '/store/data/Run2018D/SingleMuon/RAW/v1/000/321/295/00000/80DC1B2C-12A0-E811-82FC-02163E00F71E.root',
+# '/store/data/Run2018D/SingleMuon/RAW/v1/000/321/295/00000/F8D72E1A-E3A0-E811-98B2-02163E01A12E.root',
+# '/store/data/Run2018D/SingleMuon/RAW/v1/000/321/295/00000/8CB29C4C-E3A0-E811-9AE3-FA163E74E2EE.root',
 ]
 
 # Schedule definition
